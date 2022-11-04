@@ -13,9 +13,8 @@ RandOm Convolutional KErnel Transform
 import Random: seed!
 using StaticArrays
 using Distributions: Uniform, Normal
-using Statistics: mean, std
 using LinearAlgebra: dot
-using StatsBase: sample
+using StatsBase: sample, mean, std
 
 mutable struct Rocket
 	num_kernels :: Int64
@@ -27,6 +26,7 @@ end
 
 Rocket(num_kernels=10_000, normalize=true, seed=nothing) = Rocket(num_kernels, normalize, seed, nothing, 0)
 
+# size(X) = (n_instances, n_dimensions, series_length)
 function fit!(r::Rocket, X::Array{Float64, 3})
 	_, r.n_columns, n_timepoints = size(X)
 	r.kernels = generate_kernels(n_timepoints, r.num_kernels, r.n_columns, r.seed);
@@ -35,7 +35,7 @@ end
 function transform!(r::Rocket, X::Array{Float64, 3})
 	if r.normalize
 		# numpy is row-major while julia column-major - it has to be fixed here probably (or while reading data)
-		X .= (X - mean(X, dims=3)) / (std(X, dims=3) + 1e-8)
+		X .= (X .- mean(X, dims=3)) ./ (std(X, dims=3) .+ 1e-8)
 	end
 
 	t = apply_kernels(X, r.kernels)
@@ -50,9 +50,9 @@ function generate_kernels(n_timepoints::Int64, num_kernels::Int64, n_columns::In
 	candidate_lengths = [7, 9, 11]
 	lengths = sample(candidate_lengths, num_kernels)
 
-	num_channel_indices = map(x->floor(Int,2^rand(Uniform(0, log2(min(n_columns, x) + 1)))), lengths)
+	num_channel_indices = map(x->floor(Int, 2^rand(Uniform(0, log2(min(n_columns, x) + 1)))), lengths)
 
-	channel_indices = zeros(sum(num_channel_indices))
+	channel_indices = zeros(Int, sum(num_channel_indices))
 	weights 			= zeros(dot(lengths, num_channel_indices))
 	biases 				= zeros(num_kernels)
 	dilations 		= zeros(num_kernels)
@@ -105,28 +105,28 @@ function apply_kernels(X::Array{Float64, 3}, kernels::Tuple)
 	_X = zeros(n_instances, num_kernels*2)
 
 	for i in 1:n_instances
-		a₁ = 0 			# for weights		
-		a₂ = 0 			# for channel_indices
-		a₃ = 0 			# for features
+		a₁ = 1 			# for weights		
+		a₂ = 1 			# for channel_indices
+		a₃ = 1 			# for features
 
 		for j in 1:num_kernels
-			b₁ = a₁ + num_channel_indices[j] + lengths[j]
+			b₁ = a₁ + num_channel_indices[j] * lengths[j]
 			b₂ = a₂ + num_channel_indices[j]
 			b₃ = a₃	+ 2
 
 			@assert num_channel_indices != 1 "Univariate case not implemented!"
 
-			_weights = reshape(weights[a₁:b₁],(num_channel_indices[j], lengths[j]))
+			_weights = reshape(weights[a₁:b₁-1],(num_channel_indices[j], lengths[j]))
 
-			_X[i, a₃:b₃] .= apply_kernel_multivariate(
-				X[i],
+			_X[i, a₃:b₃-1] .= apply_kernel_multivariate(
+				X[i,:,:],
 				_weights,
 				lengths[j],
 				biases[j],
 				dilations[j],
 				paddings[j],
 				num_channel_indices[j],
-				channel_indices[a₂:b₂]
+				channel_indices[a₂:b₂-1]
 				)
 
 			a₁ = b₁
