@@ -55,8 +55,8 @@ function generate_kernels(n_timepoints::Int64, num_kernels::Int64, n_columns::In
 	channel_indices = zeros(Int, sum(num_channel_indices))
 	weights 			= zeros(dot(lengths, num_channel_indices))
 	biases 				= zeros(num_kernels)
-	dilations 		= zeros(num_kernels)
-	paddings 			= zeros(num_kernels)
+	dilations 		= zeros(Int, num_kernels)
+	paddings 			= zeros(Int, num_kernels)
 
 	a₁ = 1 		# for weights
 	a₂ = 1 		# for channel indices
@@ -81,7 +81,8 @@ function generate_kernels(n_timepoints::Int64, num_kernels::Int64, n_columns::In
 
 		weights[a₁:b₁-1] .= _weights
 
-		channel_indices[a₂:b₂-1] .= sample(collect(1:10), _num_channel_indices, replace=false)
+		# println("n_columns: ", n_columns, ", _num_channel_indices: ", _num_channel_indices)
+		channel_indices[a₂:b₂-1] .= sample(collect(1:n_columns), _num_channel_indices, replace=false)
 
 		biases[i] = rand(Uniform(-1,1))
 
@@ -117,7 +118,7 @@ function apply_kernels(X::Array{Float64, 3}, kernels::Tuple)
 			@assert num_channel_indices != 1 "Univariate case not implemented!"
 
 			_weights = reshape(weights[a₁:b₁-1],(num_channel_indices[j], lengths[j]))
-
+			# println("a₃: ", a₃, ", b₃: ", b₃)
 			_X[i, a₃:b₃-1] .= apply_kernel_multivariate(
 				X[i,:,:],
 				_weights,
@@ -134,6 +135,7 @@ function apply_kernels(X::Array{Float64, 3}, kernels::Tuple)
 			a₃ = b₃	
 		end
 	end
+	return _X
 end
 
 function apply_kernel_multivariate(X, weights, length, bias, dilation, padding, num_channel_indices, channel_indices)
@@ -146,6 +148,7 @@ function apply_kernel_multivariate(X, weights, length, bias, dilation, padding, 
 
 	endl = (n_timepoints + padding) - ((length - 1) * dilation)
 
+# println("-padding: ", -padding, ", endl-1: ", endl-1)
 	for i = -padding:(endl-1)
 		_sum = bias
 		index = i
@@ -153,7 +156,8 @@ function apply_kernel_multivariate(X, weights, length, bias, dilation, padding, 
 		for j=1:length
 			if (index > -1) && (index < n_timepoints)
 				for k=1:num_channel_indices
-					_sum += weights[k,j] * X[channel_indices[k], index]
+					# println("k: ", k,", j: ", j, ", channel_indices[k]: ", channel_indices[k], ", index: ", index)
+					_sum += weights[k,j] .* X[channel_indices[k], index+1]
 				end
 			end
 			index = index + dilation
