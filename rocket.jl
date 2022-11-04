@@ -29,7 +29,7 @@ Rocket(num_kernels=10_000, normalize=true, seed=nothing) = Rocket(num_kernels, n
 
 function fit!(r::Rocket, X::Array{Float64, 3})
 	_, r.n_columns, n_timepoints = size(X)
-	r.kernels = generate_kernels(n_timepoints, r.num_kernels, r.n_columns, r.seed)
+	r.kernels = generate_kernels(n_timepoints, r.num_kernels, r.n_columns, r.seed);
 end
 
 function transform!(r::Rocket, X::Array{Float64, 3})
@@ -53,10 +53,10 @@ function generate_kernels(n_timepoints::Int64, num_kernels::Int64, n_columns::In
 	num_channel_indices = map(x->floor(Int,2^rand(Uniform(0, log2(min(n_columns, x) + 1)))), lengths)
 
 	channel_indices = zeros(sum(num_channel_indices))
-	weights 		= zeros(dot(lengths, num_channel_indices))
-	biases 			= zeros(num_kernels)
+	weights 			= zeros(dot(lengths, num_channel_indices))
+	biases 				= zeros(num_kernels)
 	dilations 		= zeros(num_kernels)
-	paddings 		= zeros(num_kernels)
+	paddings 			= zeros(num_kernels)
 
 	a₁ = 1 		# for weights
 	a₂ = 1 		# for channel indices
@@ -66,7 +66,7 @@ function generate_kernels(n_timepoints::Int64, num_kernels::Int64, n_columns::In
 		_length = lengths[i]
 		_num_channel_indices = num_channel_indices[i]
 
-		_weights = rand(Normal(), _length)
+		_weights = rand(Normal(), _num_channel_indices * _length)
 
 		b₁ = a₁ + (_num_channel_indices * _length)
 		b₂ = a₂ + _num_channel_indices
@@ -79,9 +79,9 @@ function generate_kernels(n_timepoints::Int64, num_kernels::Int64, n_columns::In
 			a₃ = b₃
 		end
 
-		weights[a₁:b₁] .= _weights
+		weights[a₁:b₁-1] .= _weights
 
-		channel_indices[a₂:b₂] .= sample(collect(1:10), _num_channel_indices, replace=false)
+		channel_indices[a₂:b₂-1] .= sample(collect(1:10), _num_channel_indices, replace=false)
 
 		biases[i] = rand(Uniform(-1,1))
 
