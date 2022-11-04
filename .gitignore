@@ -1,0 +1,4 @@
+Manifest.toml
+Project.toml
+.ipynb_checkpoints/
+.DS_Store

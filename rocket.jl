@@ -1,4 +1,4 @@
-"""
+#=
 ROCKET.
 RandOm Convolutional KErnel Transform
 @article{dempster_etal_2019,
@@ -9,13 +9,13 @@ RandOm Convolutional KErnel Transform
   year    = {2019},
   journal = {arXiv:1910.13051}
 }
-"""
+=#
 import Random: seed!
 using StaticArrays
 using Distributions: Uniform, Normal
 using Statistics: mean, std
 using LinearAlgebra: dot
-using StatsBase : sample
+using StatsBase: sample
 
 mutable struct Rocket
 	num_kernels :: Int64
@@ -33,7 +33,7 @@ function fit!(r::Rocket, X::Array{Float64, 3})
 end
 
 function transform!(r::Rocket, X::Array{Float64, 3})
-	if r.normalize:
+	if r.normalize
 		# numpy is row-major while julia column-major - it has to be fixed here probably (or while reading data)
 		X .= (X - mean(X, dims=3)) / (std(X, dims=3) + 1e-8)
 	end
@@ -42,7 +42,7 @@ function transform!(r::Rocket, X::Array{Float64, 3})
 	return t
 end
 
-function generate_kernels(n_timepoints::Int64, num_kernels::Int64, n_columns::Int64, seed::Int64)
+function generate_kernels(n_timepoints::Int64, num_kernels::Int64, n_columns::Int64, seed::Union{Int64,Nothing})
 	if !isnothing(seed)
 		seed!(seed)
 	end
@@ -50,7 +50,7 @@ function generate_kernels(n_timepoints::Int64, num_kernels::Int64, n_columns::In
 	candidate_lengths = [7, 9, 11]
 	lengths = sample(candidate_lengths, num_kernels)
 
-	num_channel_indices .= map(x->2^rand(Uniform(0, log2(min(n_columns, x) + 1))), lengths)
+	num_channel_indices = map(x->floor(Int,2^rand(Uniform(0, log2(min(n_columns, x) + 1)))), lengths)
 
 	channel_indices = zeros(sum(num_channel_indices))
 	weights 		= zeros(dot(lengths, num_channel_indices))
@@ -61,7 +61,7 @@ function generate_kernels(n_timepoints::Int64, num_kernels::Int64, n_columns::In
 	a₁ = 1 		# for weights
 	a₂ = 1 		# for channel indices
 
-	for i in range 1:num_kernels
+	for i in 1:num_kernels
 
 		_length = lengths[i]
 		_num_channel_indices = num_channel_indices[i]
@@ -75,7 +75,7 @@ function generate_kernels(n_timepoints::Int64, num_kernels::Int64, n_columns::In
 
 		for _ in 1:_num_channel_indices
 			b₃ = a₃ + _length
-			_weights[a₃:b₃] -= mean(_weights[a₃:b₃])
+			_weights[a₃:b₃-1] .-= mean(_weights[a₃:b₃-1])
 			a₃ = b₃
 		end
 
@@ -151,7 +151,7 @@ function apply_kernel_multivariate(X, weights, length, bias, dilation, padding, 
 		index = i
 
 		for j=1:length
-			if index > -1 and index < n_timepoints
+			if (index > -1) && (index < n_timepoints)
 				for k=1:num_channel_indices
 					_sum += weights[k,j] * X[channel_indices[k], index]
 				end
@@ -164,3 +164,4 @@ function apply_kernel_multivariate(X, weights, length, bias, dilation, padding, 
 	end
 	return (_ppv/output_length), _max
 end	
+
