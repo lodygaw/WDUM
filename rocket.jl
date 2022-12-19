@@ -13,158 +13,109 @@ RandOm Convolutional KErnel Transform
 import Random: seed!
 using Distributions: Uniform, Normal
 using LinearAlgebra: dot
-using StatsBase: sample, mean, std, ZScoreTransform, standardize
+using StatsBase: sample, mean, std
 
-mutable struct Rocket
-	num_kernels :: Int64
-	normalize :: Bool
-	seed :: Union{Int64, Nothing}
-	kernels :: Union{Tuple, Nothing} 
-	n_columns :: Int64
+struct RocketKernel{FT}
+	weights 		:: Matrix{FT}
+	length 			:: UInt32
+	bias 				:: FT
+	dilation 		:: Int32
+	padding 		:: Int32
+	n_channels 	:: UInt32
+	channels 		:: Vector{UInt32}
 end
 
-Rocket(num_kernels=10_000, normalize=true, seed=nothing) = Rocket(num_kernels, normalize, seed, nothing, 0)
-
-# size(X) = (n_instances, n_dimensions, series_length)
-function fit!(r::Rocket, X::Array{Float64, 3})
-	_, r.n_columns, n_timepoints = size(X)
-	r.kernels = generate_kernels(n_timepoints, r.num_kernels, r.n_columns, r.seed);
+mutable struct Rocket{FLOAT, NKERNELS, NORMALIZE}
+	kernels 	:: Vector{RocketKernel{FLOAT}} 
+	n_columns :: UInt32
+	n_timepts :: UInt32
 end
 
-function transform!(r::Rocket, X::Array{Float64, 3})
-	if r.normalize
-		# numpy is row-major while julia column-major - it has to be fixed here probably (or while reading data)
-		X = (X .- mean(X, dims=3)) ./ (std(X, dims=3) .+ 1e-8)
-		# X = standardize(ZScoreTransform, X, dims=2)
-	end
+Rocket(num_kernels=10_000, normalize=true, precision=Float32) = Rocket{precision, num_kernels, normalize}(RocketKernel{precision}[], 0, 0)
 
-	t = apply_kernels(X, r.kernels)
-	return t
-end
-
-function generate_kernels(n_timepoints::Int64, num_kernels::Int64, n_columns::Int64, seed::Union{Int64,Nothing})
+function fit!(r::Rocket{FLOAT, NKERNELS, NORMALIZE}, X::Array{FLOAT, 3}, seed=nothing) where {FLOAT, NKERNELS, NORMALIZE}
 	if !isnothing(seed)
 		seed!(seed)
 	end
 
-	candidate_lengths = [7, 9, 11]
-	lengths = sample(candidate_lengths, num_kernels)
-
-	num_channel_indices = map(x->floor(Int, 2^rand(Uniform(0, log2(min(n_columns, x) + 1)))), lengths)
-
-	channel_indices = zeros(Int, sum(num_channel_indices))
-	weights 			= zeros(Float32, floor(dot(lengths, num_channel_indices)))
-	biases 				= zeros(Float32, num_kernels)
-	dilations 		= zeros(Int, num_kernels)
-	paddings 			= zeros(Int, num_kernels)
-
-	a₁ = 1 		# for weights
-	a₂ = 1 		# for channel indices
-
-	for i in 1:num_kernels
-
-		_length = lengths[i]
-		_num_channel_indices = num_channel_indices[i]
-
-		_weights = Array{Float32}(rand(Normal(0,1), _num_channel_indices * _length))
-
-		b₁ = a₁ + (_num_channel_indices * _length) - 1
-		b₂ = a₂ + _num_channel_indices - 1
-
-		a₃ = 1 		# for weights (per channel)
-
-		for _ in 1:_num_channel_indices
-			b₃ = a₃ + _length - 1
-			_weights[a₃:b₃] .-= mean(_weights[a₃:b₃])
-			a₃ = b₃ + 1
-		end
-
-		weights[a₁:b₁] .= _weights
-
-		channel_indices[a₂:b₂] .= sample(collect(1:n_columns), _num_channel_indices, replace=false)
-
-		biases[i] = rand(Uniform(-1,1))
-
-		dilations[i] = dilation = floor(Int, 2^rand(Uniform(0, log2((n_timepoints-1)/(_length-1)))))
-
-		paddings[i] = rand(Bool) == true ? floor(Int, ((_length - 1) * dilation) / 2) : 0 
-
-		a₁ = b₁ + 1
-		a₂ = b₂ + 1
-	end
-
-	return weights, lengths, biases, dilations, paddings, num_channel_indices, channel_indices
+	_, r.n_columns, r.n_timepts = size(X)
+	generate_kernels!(r)
 end
 
-function apply_kernels(X::Array{Float64, 3}, kernels::Tuple)
-	weights, lengths, biases, dilations, paddings, num_channel_indices, channel_indices = kernels
+function transform!(r::Rocket{FLOAT,NKERNELS,NORMALIZE}, X::Array{FLOAT, 3}) where {FLOAT,NKERNELS,NORMALIZE}
+	if NORMALIZE
+		X = (X .- mean(X, dims=3)) ./ (std(X, dims=3) .+ convert(FLOAT,1e-8))
+	end
+
+	transform = apply_kernels(X, r.kernels)
+	return transform 
+end
+
+function generate_kernels!(r::Rocket{FLOAT,NKERNELS,NORMALIZE}) where {FLOAT,NKERNELS,NORMALIZE}
+
+	candidate_lengths = [7, 9, 11]
+
+	for i in 1:NKERNELS
+		_length 		= sample(candidate_lengths)
+		_n_channels = floor(Int, 2^rand(Uniform(0, log2(min(r.n_columns, _length) + 1))))
+		_weights 		= Matrix{FLOAT}(rand(Normal(0,1), _n_channels, _length))
+
+		for i in 1:_n_channels
+			_weights[i,:] .-= mean(view(_weights, i, :))
+		end
+
+		_channels 	= sample(collect(1:r.n_columns), _n_channels, replace=false)
+		_bias 			= rand(Uniform(-1,1))
+		_dilation 	= floor(Int, 2^rand(Uniform(0, log2((r.n_timepts-1)/(_length-1)))))
+		_padding 		= rand(Bool) == true ? floor(Int, ((_length - 1) * _dilation) / 2) : 0 
+
+		push!(r.kernels, RocketKernel{FLOAT}(_weights, _length, _bias, _dilation, _padding, _n_channels, _channels))
+	end
+	return nothing
+end
+
+function apply_kernels(X::Array{FLOAT, 3}, kernels::Vector{RocketKernel{FLOAT}}) where {FLOAT}
 
 	n_instances, n_columns, _ = size(X)
-	num_kernels = length(lengths)
+	num_kernels = length(kernels)
 
-	_X = zeros(Float32, n_instances, num_kernels*2)
+	_X = zeros(FLOAT, n_instances, num_kernels*2)
 
 	for i in 1:n_instances
-		a₁ = 1 			# for weights		
-		a₂ = 1 			# for channel_indices
-		a₃ = 1 			# for features
-
-		for j in 1:num_kernels
-			b₁ = a₁ + num_channel_indices[j] * lengths[j] - 1
-			b₂ = a₂ + num_channel_indices[j] - 1
-			b₃ = a₃	+ 1
-
-			if num_channel_indices[j] == 1
-
-				_X[i, a₃:b₃] .= apply_kernel_univariate(
-					X[i,channel_indices[a₂],:],
-					weights[a₁:b₁],
-					lengths[j],
-					biases[j],
-					dilations[j],
-					paddings[j]
-					)
-
+		a = 1 	
+		for kernel in kernels
+			b = a	+ 1
+			if kernel.n_channels == 1
+				_X[i, a:b] .= apply_kernel_univariate(view(X, i, kernel.channels[1], :), kernel)
 			else
-				_weights = reshape(weights[a₁:b₁], (lengths[j], num_channel_indices[j]))'
-				
-				_X[i, a₃:b₃] .= apply_kernel_multivariate(
-					X[i,:,:],
-					_weights,
-					lengths[j],
-					biases[j],
-					dilations[j],
-					paddings[j],
-					num_channel_indices[j],
-					channel_indices[a₂:b₂]
-					)
+				_X[i, a:b] .= apply_kernel_multivariate(view(X, i, :, :), kernel)
 			end
-			a₁ = b₁ + 1
-			a₂ = b₂ + 1
-			a₃ = b₃	+ 1
+			a = b	+ 1
 		end
 	end
 	return _X
 end
 
-function apply_kernel_multivariate(X, weights, length, bias, dilation, padding, num_channel_indices, channel_indices)
-	n_columns, n_timepoints = size(X)
+function apply_kernel_multivariate(X, rk::RocketKernel{FLOAT}) where {FLOAT}
+	weights, length, bias, dilation, padding, n_channels, channels = rk.weights, rk.length, rk.bias, rk.dilation, rk.padding, rk.n_channels, rk.channels
 
-	output_length = (n_timepoints + (2 * padding)) - ((length - 1) * dilation)
+	n_columns, n_timepts = size(X)
 
-	_ppv = 0
-	_max = -Inf
+	output_length = (n_timepts + (2 * padding)) - ((length - 1) * dilation)
 
-	endl = (n_timepoints + padding) - ((length - 1) * dilation) - 1
+	_ppv = convert(FLOAT,0)
+	_max = convert(FLOAT,-Inf)
 
-	for i = -padding:(endl)
+	stop = (n_timepts + padding) - ((length - 1) * dilation) - 1
+
+	for i = -padding:(stop)
 		_sum = bias
 		index = i
 
 		for j=1:length
-			if (index > -1) && (index < n_timepoints)
-				for k=1:num_channel_indices
-					_sum += weights[k,j] * X[channel_indices[k], index+1]
+			if (index > -1) && (index < n_timepts)
+				for k=1:n_channels
+					_sum += weights[k,j] * X[channels[k], index+1]
 				end
 			end
 			index = index + dilation
@@ -172,25 +123,27 @@ function apply_kernel_multivariate(X, weights, length, bias, dilation, padding, 
 		_sum > _max ? _max = _sum : nothing
 		_sum > 0    ? _ppv += 1   : nothing
 	end
-	return Float32(_ppv/output_length), Float32(_max)
+	return _ppv/output_length, _max
 end	
 
-function apply_kernel_univariate(X, weights, _length, bias, dilation, padding)
-	n_timepoints = length(X)
+function apply_kernel_univariate(X, rk::RocketKernel{FLOAT}) where {FLOAT}
+	weights, length, bias, dilation, padding = rk.weights, rk.length, rk.bias, rk.dilation, rk.padding
 
-	output_length = (n_timepoints + (2 * padding)) - ((_length - 1) * dilation)
+	n_timepts, = size(X)
 
-	_ppv = 0
-	_max = -Inf
+	output_length = (n_timepts + (2 * padding)) - ((length - 1) * dilation)
 
-	endl = (n_timepoints + padding) - ((_length - 1) * dilation) - 1
+	_ppv = convert(FLOAT,0)
+	_max = convert(FLOAT,-Inf)
 
-	for i = -padding:(endl)
+	stop = (n_timepts + padding) - ((length - 1) * dilation) - 1
+
+	for i = -padding:(stop)
 		_sum = bias
 		index = i
 
-		for j=1:_length
-			if (index > -1) && (index < n_timepoints)
+		for j=1:length
+			if (index > -1) && (index < n_timepts)
 				_sum += weights[j] * X[index+1]
 			end
 			index = index + dilation
@@ -199,5 +152,5 @@ function apply_kernel_univariate(X, weights, _length, bias, dilation, padding)
 		_sum > 0    ? _ppv += 1   : nothing
 		
 	end
-	return Float32(_ppv/output_length), Float32(_max)
+	return _ppv/output_length, _max
 end	
