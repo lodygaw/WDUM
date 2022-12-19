@@ -11,10 +11,9 @@ RandOm Convolutional KErnel Transform
 }
 =#
 import Random: seed!
-using StaticArrays
 using Distributions: Uniform, Normal
 using LinearAlgebra: dot
-using StatsBase: sample, mean, std
+using StatsBase: sample, mean, std, ZScoreTransform, standardize
 
 mutable struct Rocket
 	num_kernels :: Int64
@@ -35,7 +34,8 @@ end
 function transform!(r::Rocket, X::Array{Float64, 3})
 	if r.normalize
 		# numpy is row-major while julia column-major - it has to be fixed here probably (or while reading data)
-		X .= (X .- mean(X, dims=3)) ./ (std(X, dims=3) .+ 1e-8)
+		X = (X .- mean(X, dims=3)) ./ (std(X, dims=3) .+ 1e-8)
+		# X = standardize(ZScoreTransform, X, dims=2)
 	end
 
 	t = apply_kernels(X, r.kernels)
@@ -53,8 +53,8 @@ function generate_kernels(n_timepoints::Int64, num_kernels::Int64, n_columns::In
 	num_channel_indices = map(x->floor(Int, 2^rand(Uniform(0, log2(min(n_columns, x) + 1)))), lengths)
 
 	channel_indices = zeros(Int, sum(num_channel_indices))
-	weights 			= zeros(dot(lengths, num_channel_indices))
-	biases 				= zeros(num_kernels)
+	weights 			= zeros(Float32, floor(dot(lengths, num_channel_indices)))
+	biases 				= zeros(Float32, num_kernels)
 	dilations 		= zeros(Int, num_kernels)
 	paddings 			= zeros(Int, num_kernels)
 
@@ -66,23 +66,22 @@ function generate_kernels(n_timepoints::Int64, num_kernels::Int64, n_columns::In
 		_length = lengths[i]
 		_num_channel_indices = num_channel_indices[i]
 
-		_weights = rand(Normal(), _num_channel_indices * _length)
+		_weights = Array{Float32}(rand(Normal(0,1), _num_channel_indices * _length))
 
-		b₁ = a₁ + (_num_channel_indices * _length)
-		b₂ = a₂ + _num_channel_indices
+		b₁ = a₁ + (_num_channel_indices * _length) - 1
+		b₂ = a₂ + _num_channel_indices - 1
 
 		a₃ = 1 		# for weights (per channel)
 
 		for _ in 1:_num_channel_indices
-			b₃ = a₃ + _length
-			_weights[a₃:b₃-1] .-= mean(_weights[a₃:b₃-1])
-			a₃ = b₃
+			b₃ = a₃ + _length - 1
+			_weights[a₃:b₃] .-= mean(_weights[a₃:b₃])
+			a₃ = b₃ + 1
 		end
 
-		weights[a₁:b₁-1] .= _weights
+		weights[a₁:b₁] .= _weights
 
-		# println("n_columns: ", n_columns, ", _num_channel_indices: ", _num_channel_indices)
-		channel_indices[a₂:b₂-1] .= sample(collect(1:n_columns), _num_channel_indices, replace=false)
+		channel_indices[a₂:b₂] .= sample(collect(1:n_columns), _num_channel_indices, replace=false)
 
 		biases[i] = rand(Uniform(-1,1))
 
@@ -90,8 +89,8 @@ function generate_kernels(n_timepoints::Int64, num_kernels::Int64, n_columns::In
 
 		paddings[i] = rand(Bool) == true ? floor(Int, ((_length - 1) * dilation) / 2) : 0 
 
-		a₁ = b₁
-		a₂ = b₂
+		a₁ = b₁ + 1
+		a₂ = b₂ + 1
 	end
 
 	return weights, lengths, biases, dilations, paddings, num_channel_indices, channel_indices
@@ -103,7 +102,7 @@ function apply_kernels(X::Array{Float64, 3}, kernels::Tuple)
 	n_instances, n_columns, _ = size(X)
 	num_kernels = length(lengths)
 
-	_X = zeros(n_instances, num_kernels*2)
+	_X = zeros(Float32, n_instances, num_kernels*2)
 
 	for i in 1:n_instances
 		a₁ = 1 			# for weights		
@@ -111,28 +110,38 @@ function apply_kernels(X::Array{Float64, 3}, kernels::Tuple)
 		a₃ = 1 			# for features
 
 		for j in 1:num_kernels
-			b₁ = a₁ + num_channel_indices[j] * lengths[j]
-			b₂ = a₂ + num_channel_indices[j]
-			b₃ = a₃	+ 2
+			b₁ = a₁ + num_channel_indices[j] * lengths[j] - 1
+			b₂ = a₂ + num_channel_indices[j] - 1
+			b₃ = a₃	+ 1
 
-			@assert num_channel_indices != 1 "Univariate case not implemented!"
+			if num_channel_indices[j] == 1
 
-			_weights = reshape(weights[a₁:b₁-1],(num_channel_indices[j], lengths[j]))
-			# println("a₃: ", a₃, ", b₃: ", b₃)
-			_X[i, a₃:b₃-1] .= apply_kernel_multivariate(
-				X[i,:,:],
-				_weights,
-				lengths[j],
-				biases[j],
-				dilations[j],
-				paddings[j],
-				num_channel_indices[j],
-				channel_indices[a₂:b₂-1]
-				)
+				_X[i, a₃:b₃] .= apply_kernel_univariate(
+					X[i,channel_indices[a₂],:],
+					weights[a₁:b₁],
+					lengths[j],
+					biases[j],
+					dilations[j],
+					paddings[j]
+					)
 
-			a₁ = b₁
-			a₂ = b₂
-			a₃ = b₃	
+			else
+				_weights = reshape(weights[a₁:b₁], (lengths[j], num_channel_indices[j]))'
+				
+				_X[i, a₃:b₃] .= apply_kernel_multivariate(
+					X[i,:,:],
+					_weights,
+					lengths[j],
+					biases[j],
+					dilations[j],
+					paddings[j],
+					num_channel_indices[j],
+					channel_indices[a₂:b₂]
+					)
+			end
+			a₁ = b₁ + 1
+			a₂ = b₂ + 1
+			a₃ = b₃	+ 1
 		end
 	end
 	return _X
@@ -146,26 +155,49 @@ function apply_kernel_multivariate(X, weights, length, bias, dilation, padding, 
 	_ppv = 0
 	_max = -Inf
 
-	endl = (n_timepoints + padding) - ((length - 1) * dilation)
+	endl = (n_timepoints + padding) - ((length - 1) * dilation) - 1
 
-# println("-padding: ", -padding, ", endl-1: ", endl-1)
-	for i = -padding:(endl-1)
+	for i = -padding:(endl)
 		_sum = bias
 		index = i
 
 		for j=1:length
 			if (index > -1) && (index < n_timepoints)
 				for k=1:num_channel_indices
-					# println("k: ", k,", j: ", j, ", channel_indices[k]: ", channel_indices[k], ", index: ", index)
-					_sum += weights[k,j] .* X[channel_indices[k], index+1]
+					_sum += weights[k,j] * X[channel_indices[k], index+1]
 				end
 			end
 			index = index + dilation
-			
-			_sum > _max ? _max = _sum : nothing
-			_sum > 0    ? _ppv += 1   : nothing
-		end
+		end	
+		_sum > _max ? _max = _sum : nothing
+		_sum > 0    ? _ppv += 1   : nothing
 	end
-	return (_ppv/output_length), _max
+	return Float32(_ppv/output_length), Float32(_max)
 end	
 
+function apply_kernel_univariate(X, weights, _length, bias, dilation, padding)
+	n_timepoints = length(X)
+
+	output_length = (n_timepoints + (2 * padding)) - ((_length - 1) * dilation)
+
+	_ppv = 0
+	_max = -Inf
+
+	endl = (n_timepoints + padding) - ((_length - 1) * dilation) - 1
+
+	for i = -padding:(endl)
+		_sum = bias
+		index = i
+
+		for j=1:_length
+			if (index > -1) && (index < n_timepoints)
+				_sum += weights[j] * X[index+1]
+			end
+			index = index + dilation
+		end	
+		_sum > _max ? _max = _sum : nothing
+		_sum > 0    ? _ppv += 1   : nothing
+		
+	end
+	return Float32(_ppv/output_length), Float32(_max)
+end	
