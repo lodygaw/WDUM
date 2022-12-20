@@ -14,21 +14,22 @@ import Random: seed!
 using Distributions: Uniform, Normal
 using LinearAlgebra: dot
 using StatsBase: sample, mean, std
+import Base.Threads: @threads
 
-struct RocketKernel{FT}
-	weights 		:: Matrix{FT}
-	length 			:: UInt32
-	bias 				:: FT
-	dilation 		:: Int32
-	padding 		:: Int32
+struct RocketKernel{FLOAT}
+	weights 	:: Matrix{FLOAT}
+	length 		:: UInt32
+	bias 		:: FLOAT
+	dilation 	:: Int32
+	padding 	:: Int32
 	n_channels 	:: UInt32
-	channels 		:: Vector{UInt32}
+	channels 	:: Vector{UInt32}
 end
 
 mutable struct Rocket{FLOAT, NKERNELS, NORMALIZE}
 	kernels 	:: Vector{RocketKernel{FLOAT}} 
-	n_columns :: UInt32
-	n_timepts :: UInt32
+	n_columns 	:: UInt32
+	n_timepts 	:: UInt32
 end
 
 Rocket(num_kernels=10_000, normalize=true, precision=Float32) = Rocket{precision, num_kernels, normalize}(RocketKernel{precision}[], 0, 0)
@@ -56,18 +57,18 @@ function generate_kernels!(r::Rocket{FLOAT,NKERNELS,NORMALIZE}) where {FLOAT,NKE
 	candidate_lengths = [7, 9, 11]
 
 	for i in 1:NKERNELS
-		_length 		= sample(candidate_lengths)
+		_length 	= sample(candidate_lengths)
 		_n_channels = floor(Int, 2^rand(Uniform(0, log2(min(r.n_columns, _length) + 1))))
-		_weights 		= Matrix{FLOAT}(rand(Normal(0,1), _n_channels, _length))
+		_weights 	= Matrix{FLOAT}(rand(Normal(0,1), _n_channels, _length))
 
 		for i in 1:_n_channels
 			_weights[i,:] .-= mean(view(_weights, i, :))
 		end
 
 		_channels 	= sample(collect(1:r.n_columns), _n_channels, replace=false)
-		_bias 			= rand(Uniform(-1,1))
+		_bias 		= rand(Uniform(-1,1))
 		_dilation 	= floor(Int, 2^rand(Uniform(0, log2((r.n_timepts-1)/(_length-1)))))
-		_padding 		= rand(Bool) == true ? floor(Int, ((_length - 1) * _dilation) / 2) : 0 
+		_padding 	= rand(Bool) == true ? floor(Int, ((_length - 1) * _dilation) / 2) : 0 
 
 		push!(r.kernels, RocketKernel{FLOAT}(_weights, _length, _bias, _dilation, _padding, _n_channels, _channels))
 	end
@@ -81,16 +82,11 @@ function apply_kernels(X::Array{FLOAT, 3}, kernels::Vector{RocketKernel{FLOAT}})
 
 	_X = zeros(FLOAT, n_instances, num_kernels*2)
 
-	for i in 1:n_instances
-		a = 1 	
-		for kernel in kernels
-			b = a	+ 1
-			if kernel.n_channels == 1
-				_X[i, a:b] .= apply_kernel_univariate(view(X, i, kernel.channels[1], :), kernel)
-			else
-				_X[i, a:b] .= apply_kernel_multivariate(view(X, i, :, :), kernel)
-			end
-			a = b	+ 1
+	N = length(kernels)
+
+	@inbounds for i in 1:n_instances
+		@threads for j in 1:N
+			_X[i, (2j-1):2j] .= apply_kernel_multivariate(view(X, i, :, :), kernels[j])
 		end
 	end
 	return _X
