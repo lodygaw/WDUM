@@ -1,5 +1,7 @@
 import DataFrames, ARFFFiles
 using Random: shuffle!, shuffle
+using StatsBase: sample
+using Plots
 
 abstract type Bound end
 abstract type Closed <: Bound end
@@ -34,7 +36,7 @@ function load_dataset(name::String, split="", dataset_directory="./datasets")
     end
     
     @assert split in ["train", "test"] """You must specify "train" or "test" as a split parameter!"""
-    @debug "Loading dataset: $(name), scope: $(split)"
+    @info "Loading dataset: $(name), scope: $(split)"
     
     r = Regex("$(name)Dimension[0-9]*_$(uppercase(split)).arff")
     filenames = filter(x->match(r,x)!==nothing, readdir("$(dataset_directory)/$(name)/"))
@@ -42,6 +44,8 @@ function load_dataset(name::String, split="", dataset_directory="./datasets")
     X = permutedims(cat((Array{Float32}(ARFFFiles.load(DataFrames.DataFrame, "$(dataset_directory)/$(name)/$(filename)")[:,1:end-1]) for filename in filenames)..., dims=3), (1,3,2))
     y = Array{String}(ARFFFiles.load(DataFrames.DataFrame, "$(dataset_directory)/$(name)/$(first(filenames))")[:,end])
     
+    n_instances, n_columns, n_timepoints = size(X)
+    @info "Dataset size: \n\tInstances: $(n_instances) \n\tColumns: $(n_columns) \n\tTimepoints: $(n_timepoints)"
     return X,y
 end
 
@@ -67,14 +71,17 @@ function split_array_into_chunks(v::Vector, chunks::Int)
 end
 
 # trimming timeseries with stratification over classes:
-# 1/3 - final length in <10%, 40%> of original
-# 1/3 - final length in (40%, 70%> of original
-# 1/3 - final length in (70%, 100%> of original
-function trim_timeseries!(X, y, ranges::Tuple)
+# ranges - Tuple of Interval structs
+# data is distributed evenly between the intervals
+# trimming is being done by substituting trimmed data with NaN
+function trim_timeseries(X::Array{T,3}, y::Array{String,1}, ranges::Vector) where {T<:AbstractFloat}
     n_ranges = length(ranges)
     classes = unique(y)
 
     n_timeseries, n_columns, n_timepoints = size(X)
+
+    _X = similar(X)
+    _X .= X
 
     for class in classes
         chunks = shuffle(split_array_into_chunks(findall(x->x==class, y), n_ranges))
@@ -82,11 +89,13 @@ function trim_timeseries!(X, y, ranges::Tuple)
         for i in 1:n_ranges
             for j in chunks[i]
                 end_index = sample_end_index(n_timepoints, ranges[i]) 
-                X[j, :, end_index+1:end] .= NaN
+                _X[j, :, end_index+1:end] .= NaN
             end
         end
     end
+    return _X
 end
+
 
 function show_stratification(X,y)
     for class in unique(y)
@@ -96,4 +105,12 @@ function show_stratification(X,y)
         println("  Range 0.7<x<=1.0: \t$(count(x->(0.7<x<=1.0),[count(x->!isnan(x), X[i,1,:])/size(X)[3] for i in findall(x->x==class,y)]))/$(length(findall(x->x==class,y)))")
         println("")
     end
+end
+
+function plot_timeseries(X::Array{T,2}) where {T<:AbstractFloat}
+    n_instances, n_timepoints = size(X)
+    y = [X[i,:] for i in 1:n_instances]
+    x = collect(1:n_timepoints)
+
+    plot(x, y, layout=(n_instances, 1), legend=false)
 end
