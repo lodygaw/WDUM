@@ -2,6 +2,8 @@ import DataFrames, ARFFFiles
 using Random: shuffle!, shuffle
 using StatsBase: sample
 using Plots
+using Downloads
+using ZipFile
 
 abstract type Bound end
 abstract type Closed <: Bound end
@@ -113,4 +115,41 @@ function plot_timeseries(X::Array{T,2}) where {T<:AbstractFloat}
     x = collect(1:n_timepoints)
 
     plot(x, y, layout=(n_instances, 1), legend=false)
+end
+
+function unzip(file,exdir="")
+
+    fileFullPath = isabspath(file) ?  file : joinpath(pwd(),file)
+    basePath = dirname(fileFullPath)
+    outPath = (exdir == "" ? basePath : (isabspath(exdir) ? exdir : joinpath(pwd(),exdir)))
+    isdir(outPath) ? "" : mkdir(outPath)
+    zarchive = ZipFile.Reader(fileFullPath)
+    for f in zarchive.files
+        fullFilePath = joinpath(outPath,f.name)
+        if (endswith(f.name,"/") || endswith(f.name,"\\"))
+            mkdir(fullFilePath)
+        else
+            write(fullFilePath, read(f))
+        end
+    end
+    close(zarchive)
+end
+
+function download_dataset(name::String, dir::String)
+    @info "Dowloading \"$(name)\" dataset from https://timeseriesclassification.com/Downloads/"
+
+    # Create directory if it does not exist
+    if !isdir(dir) mkdir(dir) end
+
+    resp = request("https://timeseriesclassification.com/Downloads/$(name).zip", output="$(dir)/$(name).zip")
+    @assert resp.status == 200 "Error while downloading dataset \"$(name)\""
+
+    unzip("$(dir)/$(name).zip", "$(dir)/$(name)")
+
+    @assert isdir("$(dir)/$(name)") "Error while unpacking dataset"
+
+    rm("$(dir)/$(name).zip")
+
+    @info "Finished"
+    return nothing
 end
