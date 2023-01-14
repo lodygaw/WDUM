@@ -58,11 +58,13 @@ ranges = [Interval{Closed, Closed}(0.1, 0.4),
 
 X_trimmed = trim_timeseries(X, y, ranges)
 ```
-#### Funkcje kontrolne
+#### Funkcje pomocnicze
 ```julia
-show_stratification(X_trimmed, y)           # dummy function for printing how many instances are in intervals from task description, in all classes
-plot_timeseries(ts)                          # dummy function for plotting whole SINGLE timeseries (expects ts to be matrix in dimension n_features x n_timesteps
+# dummy function for printing how many instances are in intervals from task description, in all classes
+show_stratification(X_trimmed, y)
 
+# dummy function for plotting whole SINGLE timeseries (expects ts to be matrix in dimension n_features x n_timesteps
+plot_timeseries(ts)
 ```
 
 ### WDUM.ROCKET
@@ -85,7 +87,60 @@ X_ = transform!(rocket, X)
 Aktualna implementacja zakłada format danych wejściowych `X` jako macierz trójwymiarową o wymiarach `n_timeseries × n_features × n_timesteps`.
 
 ### WDUM.Forecasts
+#### Mean - padding wartością średnią
+```julia
+target_length = 100                               # final length of timeseries
 
+# forecast(type::Type{Mean}, X::AbstractArray{T,3}, target_length::Int)
+X_ = forecast(Mean, X, target_length)
+```
+#### NaiveSingle - autorska metoda prognozowania na podstawie danych ze prognozowanego szeregu czasowego
+```julia
+target_length = 100                               # final length of timeseries
+window = 4                                        # lengths of timeseries sections for matching and forecasting
+overlap = 3                                       # length of timeseries section which will be matched with original timeseries 
 
+# forecast(type::Type{NaiveSingle}, X::AbstractArray{T,3}, target_length::Int, window::Int, overlap::Int)
+X_ = forecast(NaiveSingle, X, target_length, window, overlap)
+```
+Liczba prognozowanych kroków czasowych to `window` - `overlap`.
+#### NaiveMultiple - autorska metoda prognozowania na podstawie danych z całego zbioru
+```julia
+target_length = 100                               # final length of timeseries
+max_overlap = 40                                  # maximal allowed overlap
+min_overlap = 5                                   # minimal allowed overlap
+threshold = 0.4                                   # matching error threshold for using certain timeseries for forecasting
 
+# forecast(type::Type{NaiveMultiple}, X::AbstractArray{T,3}, target_length::Int, max_overlap::Int, min_overlap::Int, threshold::T)
+X_ = forecast(NaiveMultiple, X, target_length, max_overlap, min_overlap, threshold)
+```
+### Objaśnienie działania autorskich metod prognozowania
+Obie metody zostały opracowane w zamyśle do danych wśród których nie da się zaobserwować trendu ani cykliczności - czyli nienadającymi się do prognozowania metodami statystycznymi. Metoda `NaiveMultiple` jest tak naprawdę rozwinięciem metody `NaiveSingle`, która w rzeczywistości bardzo rzadko daje wyniki lepsze od paddingu. Prawdopodobnie dostoswanie części algorytmu z metody `NaiveMultiple` do kontekstu metody `NaiveSingle` pomogłoby zwiększyć jej użyteczność.
 
+Zarówno metoda `NaiveSingle`, jak `NaiveMultiple` bazują na porównywaniu odcinka szeregu czasowego z progozowanym szeregiem czasowym. Aktualnie wykorzystywaną miarą porównania jest *Mean Average Error*.
+#### NaiveSingle
+Metoda polega na podzieleniu prognozowanego szeregu czasowego na odcinki o długości równej `window`. 
+Sprawdzane są wszystkie możliwe kombinacje tj. szereg czasowy `ts` o długości `10` i `window` równym `5` będzie podzielony na odcinki (indeksowanie od 1.):
+- `ts[1:5]`
+- `ts[2:6]`
+- `ts[3:7]`
+- `ts[4:8]`
+- `ts[5:9]`
+- `ts[6:10]`
+
+Po podziale wszystkie odcinki będą "porównane" z końcówką prognozowanego szeregu czasowego. Liczba porównanych kroków czasowych zależy od argumentu `overlap`.
+```julia
+section = ts[1:5]
+overlap = 3
+error = loss(ts[(end - overlap):end], section[1:overlap]) 
+```
+Odcinek, którego błąd porównania będzie **najmniejszy** zostanie wykorzystany do prognozowania:
+```julia
+best_section = ts[1:5]
+window = 5
+overlap = 3
+foecast_length = window - overlap
+push!(ts, best_section[(end - forecast_length):end])
+```
+#### NaiveMultiple
+Metoda polega na porównywaniu odcinków wszystkich szeregów czasowych ze zbioru z prognozowanym szeregiem czasowym.
