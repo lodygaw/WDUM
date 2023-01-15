@@ -142,5 +142,75 @@ overlap = 3
 foecast_length = window - overlap
 push!(ts, best_section[(end - forecast_length):end])
 ```
+Procedurę powtarza się aż do uzyskania długości szeregu równej `target_length`.
 #### NaiveMultiple
-Metoda polega na porównywaniu odcinków wszystkich szeregów czasowych ze zbioru z prognozowanym szeregiem czasowym.
+Metoda polega na porównywaniu odcinków wszystkich szeregów czasowych ze zbioru z prognozowanym szeregiem czasowym. Długość porównywanych odcinków (`overlap`) jest zmienna. Pierwotna wartość `overlap` jest ustawiana przez parametr `max_overlap`. Odcinki są porównywane dla wszystkich szeregów czasowych w zbiorze w losowej kolejności. W przypadku osiągnięcia błędu porównania mniejszego niż wartość parametru `threshold`, to do prognozowanego szeregu czasowego "doklejana" jest **cała** końcówka szeregu czasowego, z którego pochodzi dopasowany odcinek. Jeśli dla wszystkich szeregów czasowych w zbiorze nie uda się uzyskać błędu dopasowania mniejszego od wartości parametru `threshold`, to parametr `overlap` jest zmniejszany o połowę. Procedura może być powtarzana, a jej granicę wyznacza parametr `min_overlap`, po którego osiągnięciu wybierany jest odcinek o najmniejszym błędzie. W przypadku osiągnięcia `min_overlap` długość prognozowania wynosi jeden krok czasowy. Po wykonaniu prognozowania (w dowolnym wariancie) wartość `overlap` jest resetowana do wartości `max_overlap`. Procedura jest powtarzana aż do uzyskania długości szeregu równej `target_length`.
+
+Uproszczony pseudokod pętli głównej algorytmu:
+```julia
+# output data
+_X = zeros(n_instances, n_features, target_length)
+
+for i in 1:n_instances
+		target = X[i,:,:]
+
+		# if timeseries is longer or equal to target length just copy it to output array
+		if length(target) >= target_length
+			_X[i,:,:] = target[:,1:target_length]
+			continue			
+		end	
+
+		overlap = max_overlap
+
+		while true
+
+			if overlap > min_overlap
+                                        # check if any timeseries can be matched with error lower than threshold
+				target, flag = attempt_forecast(i, target, X, overlap, threshold)				
+			else
+                                        # forecast one timestep with timeseries with lowest matching error
+				target, flag = perform_best_possible_forecast(i, target, X, overlap)
+			end
+
+                              # if performed forecast
+			if flag
+				if length(target) >= target_length
+					_X[i,:,:] = target[:,1:target_length]
+					break
+				else
+                                                  # reset overlap
+					overlap = max_overlap
+				end
+			else
+                                        # reduce overlap
+				overlap = overlap / 2
+			end
+		end
+	end
+```
+## Możliwe ulepszenia
+- zmiana formatu danych wejściowych na `Vector{TimeArray}` z [TimeSeries.jl](https://github.com/JuliaStats/TimeSeries.jl)
+- zparamteryzowanie długości prognozowania w przypadku niemożliwosci osiągniecia błędu poniżej `threshold`
+
+## Uruchomienie projektu
+Istnieją dwie możliwości uruchomienia programu rozwiązującego problem projektowy:
+- uruchomienie `scripts/classification.jl`
+- uruchomienie `notebooks/classification.ipynb`
+
+Aby korzystać z Julii w Jupyter Notebooku należy najpierw zainstalować pakiet IJulia, który zainstaluje podstawowy kernel Julii:
+```julia
+import Pkg
+Pkg.add("IJulia")
+using IJulia
+```
+W przypadku tego projektu mocno zalecane jest użycie kerneli wielowątkowych. Aby to umożliwić należy ręcznie stworzyć kernel z dostępną liczbą wątków w systemie (w przykładzie 12):
+```julia
+using IJulia
+IJulia.installkernel("Julia 12 Threads", env=Dict(
+    "JULIA_NUM_THREADS" => "12",
+))
+```
+W przypadku uruchomienia pliku `scripts/classification.jl` należy jedynie wpisać:
+```bash
+julia -t 12 classification.jl
+```
