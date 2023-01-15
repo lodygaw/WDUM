@@ -13,7 +13,7 @@ Należało zaproponować metodę uzupełnienia danych w przyciętych szeregach, 
 
 ## Implementacja
 
-Rozwiązanie zostało zaimplementowane w języku programowania [Julia](https://julialang.org). Instrukcja instalacji oraz linki do pobrania Julii znajdują się [tutaj](https://julialang.org/downloads/).
+Rozwiązanie zostało zaimplementowane w języku programowania [Julia](https://julialang.org). 
 
 Rozwiązanie projektu można podzielić na kilka części:
 - `rocket.jl` - autorska implementacja algorytmu ROCKET
@@ -193,6 +193,8 @@ for i in 1:n_instances
 - zparamteryzowanie długości prognozowania w przypadku niemożliwosci osiągniecia błędu poniżej `threshold`
 
 ## Uruchomienie projektu
+Rozwiązanie zostało zaimplementowane w języku programowania [Julia](https://julialang.org). Instrukcja instalacji oraz linki do pobrania Julii znajdują się [tutaj](https://julialang.org/downloads/).
+
 Istnieją dwie możliwości uruchomienia programu rozwiązującego problem projektowy:
 - uruchomienie `scripts/classification.jl`
 - uruchomienie `notebooks/classification.ipynb`
