@@ -219,7 +219,7 @@ IJulia.installkernel("Julia 12 Threads", env=Dict(
     "JULIA_NUM_THREADS" => "12",
 ))
 ```
-W przypadku uruchomienia pliku `scripts/classification.jl` należy jedynie wpisać:
+W przypadku uruchomienia pliku `scripts/classification.jl` należy jedynie wpisać (`path/to/myproject` - folder zawierający `Project.toml`):
 ```bash
-julia -t 12 classification.jl
+julia  --project=/path/to/myproject -t 12 classification.jl
 ```
