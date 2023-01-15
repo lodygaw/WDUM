@@ -197,6 +197,13 @@ Istnieją dwie możliwości uruchomienia programu rozwiązującego problem proje
 - uruchomienie `scripts/classification.jl`
 - uruchomienie `notebooks/classification.ipynb`
 
+Aby zainstalować zależności należy (w katalogu głównym projektu) przejść do REPL (wpisując `julia` w konsoli), a następnie wpisać:
+```julia
+import Pkg
+Pkg.activate(".")
+Pkg.instantiate()
+```
+
 Aby korzystać z Julii w Jupyter Notebooku należy najpierw zainstalować pakiet IJulia, który zainstaluje podstawowy kernel Julii:
 ```julia
 import Pkg
