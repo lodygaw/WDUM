@@ -1,6 +1,3 @@
-using Pkg
-Pkg.activate("..")
-
 using WDUM.Datasets
 using WDUM.Forecasts
 using WDUM.ROCKET
@@ -10,6 +7,8 @@ using ScikitLearn: @sk_import
 @sk_import linear_model : RidgeClassifierCV
 @sk_import preprocessing : StandardScaler
 @sk_import pipeline : make_pipeline
+
+download_dataset("Cricket")
 
 X_train, y_train, X_test, y_test = load_dataset("Cricket");
 

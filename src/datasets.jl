@@ -149,16 +149,16 @@ function download_dataset(name::String, dataset_directory="../data")
     @info "Dowloading \"$(name)\" dataset from https://timeseriesclassification.com/Downloads/"
 
     # Create directory if it does not exist
-    if !isdir(dir) mkdir(dir) end
+    if !isdir(dataset_directory) mkdir(dataset_directory) end
 
-    resp = request("https://timeseriesclassification.com/Downloads/$(name).zip", output="$(dir)/$(name).zip")
+    resp = request("https://timeseriesclassification.com/Downloads/$(name).zip", output="$(dataset_directory)/$(name).zip")
     @assert resp.status == 200 "Error while downloading dataset \"$(name)\""
 
-    unzip("$(dir)/$(name).zip", "$(dir)/$(name)")
+    unzip("$(dataset_directory)/$(name).zip", "$(dataset_directory)/$(name)")
 
-    @assert isdir("$(dir)/$(name)") "Error while unpacking dataset"
+    @assert isdir("$(dataset_directory)/$(name)") "Error while unpacking dataset"
 
-    rm("$(dir)/$(name).zip")
+    rm("$(dataset_directory)/$(name).zip")
 
     @info "Finished"
     return nothing
