@@ -190,7 +190,9 @@ for i in 1:n_instances
 ```
 ## Możliwe ulepszenia
 - zmiana formatu danych wejściowych na `Vector{TimeArray}` z [TimeSeries.jl](https://github.com/JuliaStats/TimeSeries.jl)
-- zparamteryzowanie długości prognozowania w przypadku niemożliwosci osiągniecia błędu poniżej `threshold`
+- wyciągnięcie długości prognozowania w przypadku niemożliwosci osiągniecia błędu poniżej `threshold` do parametru wejściowego
+- wyciągnięcie funkcji straty liczącej błąd dopasowania do parametru wejściowego
+- porównywanie pochodnych po szeregach zamiast wartości jako takich
 
 ## Uruchomienie projektu
 Rozwiązanie zostało zaimplementowane w języku programowania [Julia](https://julialang.org). Instrukcja instalacji oraz linki do pobrania Julii znajdują się [tutaj](https://julialang.org/downloads/).
